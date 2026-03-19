@@ -1,124 +1,194 @@
 import os
+from copy import deepcopy
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
 TOKEN = os.getenv("TOKEN")
 
-# Menu buttons
+# Menu
 keyboard = [
-    ["🧠 Think"],
-    ["🎯 Tasks"],
-    ["⏱ Focus"]
+    ["Think"],
+    ["Decide"],
+    ["Focus"],
+    ["Undo"],
+    ["Cancel"]
 ]
 
 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# State storage
+# State + history
 user_state = {}
+user_history = {}
+user_data_store = {}
 
-# Task storage (per user)
-user_tasks = {}
+
+# ---------------- UTIL ----------------
+def push_state(user_id, state, data):
+    if user_id not in user_history:
+        user_history[user_id] = []
+
+    user_history[user_id].append({
+        "state": state,
+        "data": deepcopy(data)
+    })
 
 
-# /start
+def pop_state(user_id):
+    if user_id not in user_history or len(user_history[user_id]) == 0:
+        return None
+
+    return user_history[user_id].pop()
+
+
+# ---------------- START ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+
     user_state[user_id] = None
+    user_history[user_id] = []
+    context.user_data.clear()
 
     await update.message.reply_text(
-        "ZAHRA active.\nChoose a mode:",
+        "ZAHRA Core System active.\nSelect a mode:",
         reply_markup=reply_markup
     )
 
 
-# Main handler
+# ---------------- CANCEL ----------------
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    user_state[user_id] = None
+    user_history[user_id] = []
+    context.user_data.clear()
+
+    await update.message.reply_text("Cancelled. Reset complete.", reply_markup=reply_markup)
+
+
+# ---------------- UNDO ----------------
+async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    previous = pop_state(user_id)
+
+    if not previous:
+        await update.message.reply_text("Nothing to undo.")
+        return
+
+    # Restore previous state
+    user_state[user_id] = previous["state"]
+    context.user_data.clear()
+    context.user_data.update(previous["data"])
+
+    await update.message.reply_text(f"Reverted to previous step: {previous['state']}")
+
+
+# ---------------- HANDLER ----------------
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
-
     state = user_state.get(user_id)
 
-    # ---------------- THINK MODE ----------------
-    if text == "🧠 Think":
-        user_state[user_id] = "situation"
-        await update.message.reply_text("Describe your situation.")
+    if user_id not in user_history:
+        user_history[user_id] = []
+
+    # ---------------- CANCEL ----------------
+    if text == "Cancel":
+        return await cancel(update, context)
+
+    # ---------------- UNDO ----------------
+    if text == "Undo":
+        return await undo(update, context)
+
+    # ---------------- THINK ----------------
+    if text == "Think":
+        push_state(user_id, state, dict(context.user_data))
+        user_state[user_id] = "think_situation"
+        await update.message.reply_text("State your situation.")
         return
 
-    if state == "situation":
-        user_state[user_id] = "goal"
+    if state == "think_situation":
+        push_state(user_id, state, dict(context.user_data))
         context.user_data["situation"] = text
-        await update.message.reply_text("What is your goal?")
+        user_state[user_id] = "think_goal"
+        await update.message.reply_text("State your goal.")
         return
 
-    elif state == "goal":
-        user_state[user_id] = "block"
+    if state == "think_goal":
+        push_state(user_id, state, dict(context.user_data))
         context.user_data["goal"] = text
+        user_state[user_id] = "think_block"
         await update.message.reply_text("What is blocking you?")
         return
 
-    elif state == "block":
-        situation = context.user_data.get("situation", "")
-        goal = context.user_data.get("goal", "")
+    if state == "think_block":
+        situation = context.user_data.get("situation")
+        goal = context.user_data.get("goal")
         block = text
 
         user_state[user_id] = None
+        user_history[user_id] = []
 
         await update.message.reply_text(
-            "Analysis:\n"
+            "Analysis:\n\n"
             f"Situation: {situation}\n"
             f"Goal: {goal}\n"
             f"Block: {block}\n\n"
-            "Focus on what you can control. Remove distractions. Take the first step."
+            "Direction:\n"
+            "- Focus on controllable factors\n"
+            "- Remove distractions\n"
+            "- Execute first step"
         )
         return
 
-    # ---------------- TASK MODE ----------------
-    if text == "🎯 Tasks":
-        tasks = user_tasks.get(user_id, [])
-
-        if not tasks:
-            await update.message.reply_text("No tasks found.\nSend a task to add one.")
-        else:
-            message = "Your tasks:\n\n"
-            for i, t in enumerate(tasks, 1):
-                message += f"{i}. {t}\n"
-            message += "\nSend a new task to add more."
-            await update.message.reply_text(message)
-
-        user_state[user_id] = "add_task"
+    # ---------------- DECIDE ----------------
+    if text == "Decide":
+        push_state(user_id, state, dict(context.user_data))
+        user_state[user_id] = "decide_option1"
+        await update.message.reply_text("Enter Option 1:")
         return
 
-    if state == "add_task":
-        task = text
+    if state == "decide_option1":
+        push_state(user_id, state, dict(context.user_data))
+        context.user_data["option1"] = text
+        user_state[user_id] = "decide_option2"
+        await update.message.reply_text("Enter Option 2:")
+        return
 
-        if user_id not in user_tasks:
-            user_tasks[user_id] = []
+    if state == "decide_option2":
+        option1 = context.user_data.get("option1")
+        option2 = text
 
-        user_tasks[user_id].append(task)
         user_state[user_id] = None
+        user_history[user_id] = []
 
-        await update.message.reply_text(f"Task added:\n{task}")
-        return
-
-    # ---------------- FOCUS MODE ----------------
-    if text == "⏱ Focus":
         await update.message.reply_text(
-            "Focus mode started.\n\n"
-            "Choose one task.\n"
-            "Remove distractions.\n"
-            "Work without switching tasks."
+            "Decision Analysis:\n\n"
+            f"Option 1: {option1}\n"
+            f"Option 2: {option2}\n\n"
+            "Compare long-term impact, risk, and alignment."
         )
         return
 
-    # Default response
-    await update.message.reply_text("ZAHRA is observing.")
+    # ---------------- FOCUS ----------------
+    if text == "Focus":
+        await update.message.reply_text(
+            "Focus Mode:\n"
+            "- Choose one task\n"
+            "- Eliminate distractions\n"
+            "- Work without switching"
+        )
+        return
+
+    await update.message.reply_text("ZAHRA is ready.")
 
 
-# App setup
+# ---------------- APP ----------------
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("cancel", cancel))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
-print("ZAHRA running...")
+print("ZAHRA Advanced running...")
 app.run_polling()
