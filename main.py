@@ -4,7 +4,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 
 TOKEN = os.getenv("TOKEN")
 
-# Keyboard menu
 keyboard = [
     ["🧠 Think"],
     ["🎯 Tasks"],
@@ -13,8 +12,13 @@ keyboard = [
 
 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+# Store user states
+user_state = {}
+
 # /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_state[update.effective_user.id] = None
+
     await update.message.reply_text(
         "ZAHRA active.\nChoose a mode:",
         reply_markup=reply_markup
@@ -22,22 +26,52 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Handle messages
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     text = update.message.text
 
-    if text == "🧠 Think":
-        await update.message.reply_text(
-            "State your situation.\nZAHRA will guide your thinking."
-        )
+    state = user_state.get(user_id)
 
-    elif text == "🎯 Tasks":
+    # Start Thinking Flow
+    if text == "🧠 Think":
+        user_state[user_id] = "situation"
+        await update.message.reply_text("Describe your situation.")
+        return
+
+    # Thinking flow steps
+    if state == "situation":
+        user_state[user_id] = "goal"
+        context.user_data["situation"] = text
+        await update.message.reply_text("What is your goal?")
+        return
+
+    elif state == "goal":
+        user_state[user_id] = "block"
+        context.user_data["goal"] = text
+        await update.message.reply_text("What is blocking you?")
+        return
+
+    elif state == "block":
+        situation = context.user_data.get("situation", "")
+        goal = context.user_data.get("goal", "")
+        block = text
+
+        user_state[user_id] = None
+
         await update.message.reply_text(
-            "Task system coming next.\nFor now, describe what you need to track."
+            "Analysis:\n"
+            f"Situation: {situation}\n"
+            f"Goal: {goal}\n"
+            f"Block: {block}\n\n"
+            "Focus on what you can control. Remove distractions. Take the first step."
         )
+        return
+
+    # Other menu options
+    if text == "🎯 Tasks":
+        await update.message.reply_text("Task system will be added next.")
 
     elif text == "⏱ Focus":
-        await update.message.reply_text(
-            "Focus mode.\nRemove distractions. Start now."
-        )
+        await update.message.reply_text("Focus mode: eliminate distractions and start now.")
 
     else:
         await update.message.reply_text("ZAHRA is observing.")
