@@ -1,64 +1,52 @@
 import os
-import random
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
 TOKEN = os.getenv("TOKEN")
 
-# Responses
-insights = [
-    "Most people don’t see reality directly.\nThey see their interpretation of it.",
-    "Perception shapes behavior more than truth.",
-    "What you ignore often controls you."
+# Keyboard menu
+keyboard = [
+    ["🧠 Think"],
+    ["🎯 Tasks"],
+    ["⏱ Focus"]
 ]
 
-mindsets = [
-    "Control your reaction.\nThat’s where real power begins.",
-    "Discipline beats motivation over time.",
-    "Consistency builds what intensity cannot sustain."
-]
+reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# /start with buttons
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("🧠 Insight", callback_data="insight")],
-        [InlineKeyboardButton("🎯 Mindset", callback_data="mindset")],
-        [InlineKeyboardButton("⚡ Focus", callback_data="focus")]
-    ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
     await update.message.reply_text(
-        "ZAHRA is active.\nChoose an option:",
+        "ZAHRA active.\nChoose a mode:",
         reply_markup=reply_markup
     )
 
-# Button click handler
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+# Handle messages
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
 
-    data = query.data
+    if text == "🧠 Think":
+        await update.message.reply_text(
+            "State your situation.\nZAHRA will guide your thinking."
+        )
 
-    if data == "insight":
-        text = random.choice(insights)
+    elif text == "🎯 Tasks":
+        await update.message.reply_text(
+            "Task system coming next.\nFor now, describe what you need to track."
+        )
 
-    elif data == "mindset":
-        text = random.choice(mindsets)
-
-    elif data == "focus":
-        text = "Focus is built by removing distractions."
+    elif text == "⏱ Focus":
+        await update.message.reply_text(
+            "Focus mode.\nRemove distractions. Start now."
+        )
 
     else:
-        text = "ZAHRA is observing."
-
-    await query.edit_message_text(text)
+        await update.message.reply_text("ZAHRA is observing.")
 
 # App setup
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button_handler))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 print("ZAHRA running...")
 app.run_polling()
